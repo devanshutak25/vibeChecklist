@@ -9,7 +9,7 @@ A structured guide for getting high-fidelity code output from LLMs. Designed to 
 **Do not read this document end-to-end for every project.**
 
 1. Start with **Section 1: Project Routing** — it takes 2 minutes and tells you exactly which sections apply.
-2. Always read **Section 2: Universal Pre-Production** — it applies to everything.
+2. Always read **Section 2: Universal Pre-Production** — it applies to everything. This now includes AI tool configuration, documentation persistence, and version control cadence.
 3. Read your **project-type section** (Section 3) — only the one that matches.
 4. If your project has a web UI, read **Section 4: UI/UX Design Process** — depth varies by how design-critical your project is.
 5. If Project Routing flagged your project as Medium or Complex, read **Section 5: Scope Estimation & Staging**.
@@ -137,6 +137,68 @@ How will you know the output is correct? Define this before prompting.
 - [ ] **A test case or walkthrough** — "When I click X, Y should happen, and Z should update." Even informal, this gives the LLM a concrete target.
 - [ ] **What "good enough" looks like** — If you're prototyping, say so. "Working prototype, rough edges acceptable, no error handling needed yet." This prevents the LLM from gold-plating.
 - [ ] **What failure looks like** — "If the state desyncs, the whole thing is broken." This focuses the LLM on critical correctness paths.
+
+### 2.6 — Lock Your Architecture Decisions
+
+You've defined your stack, constraints, and what exists. Now lock the structural decisions. These are the 20% of choices that shape everything else — once prompting begins, they don't change without a full restart (Section 9.2).
+
+- [ ] **Database schema and relationships** — Tables, fields, and how entities relate. The LLM builds queries and models around this; changing it mid-project cascades everywhere.
+- [ ] **Authentication approach** — Provider (Supabase Auth, NextAuth, Firebase, custom JWT) and model (roles, permissions, protected routes). Don't let the LLM pick this implicitly.
+- [ ] **API style and URL structure** — REST with /api/resource, GraphQL, tRPC, RPC. Pick one. If the LLM mixes styles, integration becomes unpredictable.
+- [ ] **State management pattern** — Where state lives (URL, local component, global store, server) and how it flows. This is the #1 source of architectural regret in web apps.
+- [ ] **Styling approach** — Tailwind, CSS modules, styled-components, plain CSS. Mixing approaches produces unmaintainable output.
+- [ ] **File and folder structure** — Where components, routes, utilities, and types live. Paste your intended structure or let the first prompt's skeleton establish it — then enforce it.
+
+Put these locked decisions in your rules file (Section 2.7) and first prompt. If you let the AI decide these, it will make reasonable but hard-to-reverse choices that may not match your preferences.
+
+### 2.7 — AI Tool Configuration & Context Persistence
+
+Most AI coding tools support persistent context that's automatically included with every prompt. Setting this up is the highest-leverage step you can take — it eliminates re-pasting constraints, stack, and conventions every time.
+
+#### 2.7.1 — Rules Files
+
+If your tool supports project-level rules files (CLAUDE.md, .cursorrules, .cursor/rules/, AGENTS.md, .github/copilot-instructions.md, or equivalent), create one at the root of your project.
+
+- [ ] **Tech stack declaration** — Paste your Section 2.2 tech stack verbatim. This is the single most impactful rule.
+- [ ] **Coding conventions** — One rule per line. "Use pathlib, not os.path." "All components in src/components/, named PascalCase." "Errors return {ok: false, error: string}, never throw."
+- [ ] **Constraints** — Paste your Section 2.3 constraints as rules, not suggestions.
+- [ ] **Negative rules** — What the AI must NOT do. "Do not add dependencies without asking." "Do not refactor existing code when adding features." "Do not use default exports." These prevent the most common LLM drift.
+- [ ] **Keep it under 50 lines** — Rules files that exceed the LLM's attention limits get partially ignored. If you need more detail, use hierarchical rules (directory-level files) or separate reference documents if your tool supports them.
+
+What goes where:
+
+| Content | Rules File | Prompt | PRD |
+|---|---|---|---|
+| Tech stack, versions | ✓ | First prompt only | ✓ |
+| Coding conventions | ✓ | No | No |
+| Non-negotiable constraints | ✓ | Repeat critical ones | ✓ |
+| Feature requirements | No | ✓ (one per prompt) | ✓ |
+| Design tokens | ✓ (or separate file) | Reference, don't repeat | Optional |
+| Architecture decisions | ✓ (brief) | When relevant | ✓ (full) |
+
+⚠️ **Warning:** Rules files set the baseline; each prompt still needs its own task-specific context. A rules file that says "use Zustand" doesn't replace specifying the exact store shape in the prompt where you build state management.
+
+#### 2.7.2 — Documentation Persistence
+
+For Medium and Complex projects, maintain a set of persistent context documents that you update as the project evolves. This prevents context drift across sessions — the AI starts each session with accurate knowledge of what exists and what's been decided.
+
+One structure that works (adapt to your workflow):
+
+- [ ] **project-brief.md** — One-paragraph summary + core output statement + tech stack. The file you paste at the start of every new session.
+- [ ] **architecture.md** — System structure, data model, component boundaries. Updated when architecture decisions change. Paste relevant sections into prompts that touch structure.
+- [ ] **progress.md** — What's done, what's in progress, what's next. Updated after each session. This is your handoff document between sessions.
+- [ ] **decisions.md** — Architecture and design decisions with brief rationale. "Chose Zustand over Redux: single-store is sufficient, less boilerplate." Prevents the AI from revisiting settled questions.
+
+⚠️ **Warning:** Stale documentation is worse than no documentation — it gives the LLM confident but wrong context about what exists. Update after each session or delete what's outdated.
+
+#### 2.7.3 — Version Control Cadence
+
+Version control is your undo button for vibe coding. Without it, a bad prompt can destroy working code with no way back.
+
+- [ ] **Commit after every verified prompt output.** If the next prompt breaks things, you can revert to the last working state. This is the single most important safety practice.
+- [ ] **Branch before experimental prompts.** If you're trying a risky approach or major refactor, create a branch first. If it fails, switch back.
+- [ ] **Write descriptive commit messages.** "Add user registration form with email validation" not "update". When you need to revert, you need to know what each commit contains.
+- [ ] **Never merge raw AI output to your main branch without review.** AI-generated code is a draft. Read it, test it, then commit it.
 
 ---
 
@@ -398,6 +460,22 @@ Break your project into prompts using these principles:
 3. Specifies how it integrates with existing code
 4. Defines how to verify it works
 
+**Use vertical slices, not horizontal layers.** Each prompt should cut through the full stack for one feature — database schema, server logic, and UI — rather than building all database tables first, then all API routes, then all UI pages. Vertical slices are independently testable and surface integration problems immediately instead of at the end.
+
+```
+Wrong (horizontal layers):
+  Prompt 1: All database tables
+  Prompt 2: All API routes
+  Prompt 3: All UI pages
+  Prompt 4: Wire everything together (this is where it breaks)
+
+Right (vertical slices):
+  Prompt 1: Skeleton + task creation (DB table + API endpoint + form UI)
+  Prompt 2: Task listing (query + API endpoint + list UI)
+  Prompt 3: Task editing (update logic + API endpoint + edit UI)
+  Each prompt produces something you can run and test end-to-end.
+```
+
 ### 5.3 — Staging Template
 
 For each prompt in your sequence, fill this out before prompting:
@@ -443,22 +521,33 @@ A dense paragraph covering: what it is, who it's for, what problem it solves, an
 #### 6.1.2 — User Personas (if applicable)
 Only include if your app has meaningfully different user types. For each persona: what they do, what they need, what they don't care about. Keep each to 2-3 sentences. Skip this for tools, scripts, and single-user projects.
 
-#### 6.1.3 — Feature Inventory
+#### 6.1.3 — Non-Goals and Scope Anchors
+
+Explicitly list what you are NOT building. This prevents scope creep in both your thinking and the LLM's output.
+
+- "No mobile app — web only, but responsive."
+- "No real-time collaboration — single-user editing only."
+- "No payment processing in v1."
+- "No admin panel — manage data directly in the database for now."
+
+The LLM will suggest or start building features adjacent to what you described. Non-goals give it a hard boundary.
+
+#### 6.1.4 — Feature Inventory
 A flat list of every feature. For each:
 - **Name** — short label
-- **Priority** — Must-have, Should-have, Nice-to-have
+- **Priority** — Must-have, Should-have, Could-have (nice-to-have), Won't-have (explicitly out of scope this version)
 - **Complexity** — Simple, Medium, Complex
 - **Dependencies** — which other features must exist first
-- **Acceptance criteria** — 1-3 concrete statements of what "working" means
+- **Acceptance criteria** — 1-3 concrete statements of what "working" means. For complex interactions, use structured format: "Given [state], When [action], Then [result]." Example: "Given a logged-in user, When they click Delete on a task, Then the task is removed from the list and a confirmation toast appears."
 
 This list becomes your prompt decomposition plan (Section 5).
 
-#### 6.1.4 — Data Model
+#### 6.1.5 — Data Model
 Every entity, its fields, its relationships. Use actual schema notation your tech stack uses (Prisma schema, SQLAlchemy models, TypeScript interfaces, GDScript class definitions). Not prose. Not ER diagrams described in words.
 
 Paste this into any prompt that touches data.
 
-#### 6.1.5 — Architecture Overview
+#### 6.1.6 — Architecture Overview
 A brief description of how the system is structured:
 - What runs where (client, server, edge, device)
 - How components communicate (REST, WebSocket, signals, direct function calls)
@@ -466,17 +555,17 @@ A brief description of how the system is structured:
 
 Include a simple ASCII diagram if the architecture has more than 2 components.
 
-#### 6.1.6 — API Contracts (if applicable)
+#### 6.1.7 — API Contracts (if applicable)
 For every endpoint or interface between components:
 - Method and path (or signal name, or function signature)
 - Request shape with types
 - Response shape with types
 - Error cases
 
-#### 6.1.7 — Non-Functional Requirements
+#### 6.1.8 — Non-Functional Requirements
 Performance, security, accessibility, scalability requirements that apply globally. These go in every prompt as constraints.
 
-#### 6.1.8 — Open Questions
+#### 6.1.9 — Open Questions
 Things you haven't decided yet. Write them down. When prompting, either resolve them before the relevant prompt or explicitly tell the LLM to make a decision and document it: "I haven't decided X yet. Pick the simpler option and note what you chose."
 
 ### 6.2 — PRD Anti-Patterns
@@ -485,6 +574,7 @@ Things you haven't decided yet. Write them down. When prompting, either resolve 
 - **Prose-heavy** — Schemas, contracts, and inventories should be structured data, not paragraphs. The LLM parses structured formats more reliably.
 - **Aspirational features** — Don't include features you "might" want. Every feature in the PRD will influence architecture decisions. Include only what you're building now.
 - **No priorities** — Without priority labels, the LLM treats everything as equally important and may gold-plate a Nice-to-have while half-implementing a Must-have.
+- **No non-goals** — Without explicit non-goals, the LLM builds adjacent features you didn't ask for. It sees "task management app" and adds notifications, sharing, and analytics because those are common in its training data.
 
 ---
 
@@ -592,6 +682,13 @@ LLMs have finite context windows. As your project grows across prompts:
 - Previous conversation history (the LLM doesn't need to re-read your discussion about the previous feature)
 - Completed, stable modules that aren't being touched
 
+**Session management:**
+
+- [ ] **Start fresh sessions for new features.** Don't carry a 20-message conversation into a new feature area. Start a new session, paste the current project state, and describe the next task from scratch.
+- [ ] **Restart after 2 failed corrections.** If the LLM fails to fix something twice, the context is polluted with failed approaches. Start a fresh session with only the current code and a clear problem statement — not the conversation history.
+- [ ] **Separate investigation from implementation.** If you need to explore an approach, debug a complex issue, or evaluate options, do it in a throwaway session. Bring only the conclusion back to your main session.
+- [ ] **Clear context between unrelated tasks.** If your tool supports it (e.g., `/clear` in Claude Code), clear the conversation when switching to an unrelated task within the same project.
+
 ### 8.4 — Handling LLM Ambiguity
 
 If the LLM asks a clarifying question, that's fine — answer it. But if the LLM makes a choice without asking and you don't like it:
@@ -621,6 +718,34 @@ After every prompt's output, before the next prompt:
 4. **Note exact issues.** Not "it's broken" — write down what you clicked, what happened, and what should have happened instead.
 
 Feed these exact observations into the next prompt. "When I click Submit with an empty name field, the app crashes with `TypeError: Cannot read property 'length' of undefined` at line 42 of Form.jsx" gives the LLM everything it needs. "The form doesn't work" gives it nothing.
+
+**Include verification criteria in the prompt itself.** Don't just tell the AI what to build — tell it how to verify its own work:
+
+```
+Build: User registration with email validation.
+
+Verify your output by confirming:
+- Submitting an empty email shows "Email required"
+- Submitting "notanemail" shows "Invalid email format"
+- Submitting a valid email creates a user and redirects to /dashboard
+- Submitting a duplicate email shows "Account already exists"
+```
+
+This gives the AI a self-check loop. It catches obvious errors before you have to. For tools that can run code (Claude Code, Cursor Agent, Replit), the AI can actually execute these checks.
+
+### 8.7 — The Interview Method
+
+For complex features where you have a rough idea but haven't fully specified the behavior, have the AI interview you before it builds anything:
+
+```
+I want to add [feature]. Before writing any code, interview me about this
+feature. Ask me questions about the expected behavior, edge cases, error
+handling, and UI requirements. Ask one question at a time. When you have
+enough information, summarize the agreed requirements and wait for my
+confirmation before implementing.
+```
+
+This produces better specifications than writing them alone — the AI asks questions you wouldn't think to answer. After the interview, confirm the summary, then either proceed in the same session or start a fresh session with the requirements as your prompt. The second approach keeps the implementation context clean.
 
 ---
 
@@ -741,6 +866,7 @@ This is often necessary after 10-15 exchanges in a single conversation. LLM atte
 | Asking for multiple unrelated changes | LLM gets confused about scope, makes partial changes to each. | One change per prompt. Batch only if changes are to the same file and closely related. |
 | "Use best practices" / "Make it production-ready" | Means something different in every context. LLM picks an arbitrary subset. | Name specific practices: "Add input validation with zod schemas", "Use connection pooling with a pool size of 10", "Add structured logging with correlation IDs." |
 | Not declaring what exists | LLM creates duplicate utilities, conflicting type definitions, or reimplements what's already there. | Always paste file tree + relevant interfaces at the top of each prompt. |
+| Skipping security review | LLM produces code that works but has injection vulnerabilities, exposed secrets, or missing auth checks. You won't notice until production. | After features stabilize, do a dedicated security pass: "Review this code as a security engineer. Check for: injection, auth bypass, exposed secrets, CORS misconfiguration, and unsafe defaults. List issues only, don't refactor." |
 
 ### 10.2 — Code Generation Anti-Patterns (What LLMs Do Wrong)
 
@@ -755,6 +881,7 @@ These are patterns LLMs reliably produce that you should watch for and correct:
 - **Incorrect async patterns.** LLMs produce race conditions, unhandled promise rejections, and missing `await` keywords. If your project uses async code, verify every async boundary.
 - **Overengineering on simple projects.** For a small script, the LLM may generate a full class hierarchy with abstract base classes when a flat function would suffice. Match complexity to project scope in your prompt.
 - **Dependency sprawl.** LLMs add dependencies you didn't ask for. Review every import. If you see a library you didn't specify, question whether it's necessary.
+- **Opaque code you can't debug.** The LLM produces a working function but you can't explain what it does. If you can't explain it, you can't debug it when it breaks in production. Ask the AI to explain the logic. If the explanation doesn't make sense, ask for a simpler implementation you can follow.
 
 ### 10.3 — Communication Anti-Patterns
 
@@ -774,6 +901,8 @@ BEFORE FIRST PROMPT:
 □ One-sentence "done" statement
 □ Tech stack with versions
 □ Constraints and non-negotiables
+□ Architecture decisions locked (DB, auth, API style, state mgmt)
+□ Rules file created if tool supports it (Section 2.7)
 □ What already exists (or "fresh project")
 □ Project-type-specific prep (Section 3)
 □ Design tokens defined if web UI (Section 4):
@@ -785,7 +914,7 @@ BEFORE FIRST PROMPT:
   □ Accessibility: contrast ratios, focus styles
 □ References gathered (visual, code, behavioral)
 □ Complexity assessed, prompts staged if Medium/Complex
-□ PRD written if Complex
+□ PRD written if Complex (include Non-Goals)
 
 EVERY PROMPT:
 □ Project summary (1-2 sentences)
@@ -793,21 +922,29 @@ EVERY PROMPT:
 □ Design tokens (if web UI)
 □ Current file tree
 □ Files being modified (full content)
-□ Exactly one task
+□ Exactly one task (vertical slice, not horizontal layer)
+□ Verification criteria (how AI can self-check)
 □ "Don't change" list
-□ Verification step
 
 AFTER EVERY PROMPT:
 □ Run it
 □ Test new feature
 □ Regression check
 □ Note exact issues for next prompt
+□ Commit if verified
+
+BETWEEN SESSIONS:
+□ Update progress docs (progress.md, decisions.md)
+□ Start fresh session — paste current state, not history
+□ Review rules file — prune what's outdated, add what's missing
 
 WHEN THINGS GO WRONG:
 □ Identify: architecture, behavior, aesthetic, or accumulation?
 □ Architecture wrong → restart with better spec
-□ Behavior wrong → targeted fix with reproduction steps  
+□ Behavior wrong → targeted fix with reproduction steps
 □ Aesthetic wrong → visual-only patch with pixel values
 □ Bugs accumulating → freeze features, fix all bugs first
 □ LLM confused → new session, paste current state fresh
+□ 2 failed corrections → stop, fresh session, restate problem
+□ After stabilizing → security review pass
 ```
